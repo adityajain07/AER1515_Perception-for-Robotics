@@ -226,8 +226,8 @@ def feature_detection(left_image_dir, right_image_dir, sample_list):
 
         img_left_orig  = cv.imread(left_image_path)
         img_left_gray  = cv.cvtColor(img_left_orig, cv.COLOR_BGR2GRAY)
-        img_right_orig = cv.imread(left_image_path)
-        img_right_gray = cv.imread(right_image_path, 0)
+        img_right_orig = cv.imread(right_image_path)
+        img_right_gray = cv.cvtColor(img_right_orig, cv.COLOR_BGR2GRAY)
 
         # TODO: Initialize a feature detector
         sift    = cv.xfeatures2d.SIFT_create()
@@ -242,6 +242,52 @@ def feature_detection(left_image_dir, right_image_dir, sample_list):
         img_save_path = os.path.abspath('./feature_detection/sift_keypoints_')
         cv.imwrite(img_save_path + sample_name + '.png', img_left_orig)
 
+
+def feature_matching(left_image_dir, right_image_dir, sample_list, n=25):
+    """
+    feature matching for given left and right images from a stereo camera
+    
+    Args:
+        left_image_dir  : directory containing the left images of the stereo camera
+        right_image_dir : directory containing the right images of the stereo camera
+        sample_list     : list of image names, without extension
+        n               : number of top matches to draw
+
+    Returns:
+        None
+    """
+    sift    = cv.xfeatures2d.SIFT_create()
+
+    for sample_name in sample_list:
+        left_image_path = left_image_dir +'/' + sample_name + '.png'
+        right_image_path = right_image_dir +'/' + sample_name + '.png'
+
+        # read images
+        img_left_orig  = cv.imread(left_image_path)
+        img_left_gray  = cv.cvtColor(img_left_orig, cv.COLOR_BGR2GRAY)
+        img_right_orig = cv.imread(right_image_path)
+        img_right_gray = cv.cvtColor(img_right_orig, cv.COLOR_BGR2GRAY)
+
+        # detect features and their descriptors
+        kp_left, des_left   = sift.detectAndCompute(img_left_gray, None)
+        kp_right, des_right = sift.detectAndCompute(img_right_gray, None)
+
+        # create BFMatcher object
+        bf = cv.BFMatcher(crossCheck=True)
+
+        # match descriptors.
+        matches = bf.match(des_left, des_right)
+
+        # Sort them in the order of their distance.
+        matches = sorted(matches, key = lambda x:x.distance)
+
+        # Draw top n matches.
+        matched_img = cv.drawMatches(img_left_orig, kp_left, 
+            img_right_orig, kp_right, matches[:n], 
+            None,flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+        img_save_path = os.path.abspath('./feature_matching/matched_keypoints_')
+        cv.imwrite(img_save_path + sample_name + '.png', matched_img)
 
 ## Main
 # for sample_name in sample_list:
@@ -285,4 +331,5 @@ def feature_detection(left_image_dir, right_image_dir, sample_list):
 
 if __name__=='__main__':
     # feature_detection(left_image_dir_train, right_image_dir_train, sample_list_train)
-    feature_detection(left_image_dir_test, right_image_dir_test, sample_list_test)
+    # feature_detection(left_image_dir_test, right_image_dir_test, sample_list_test)
+    feature_matching(left_image_dir_test, right_image_dir_test, sample_list_test)
