@@ -4,6 +4,7 @@ import cv2 as cv
 from matplotlib import pyplot as plt
 import csv
 import os
+from PIL import Image
 
 class FrameCalib:
     """Frame Calibration
@@ -193,6 +194,7 @@ def get_stereo_calibration(left_cam_mat, right_cam_mat):
 left_image_dir_train  = os.path.abspath('./training/left')
 right_image_dir_train = os.path.abspath('./training/right')
 calib_dir_train       = os.path.abspath('./training/calib')
+pred_depth_map_train  = os.path.abspath('./training/pred_depth_map')
 sample_list_train     = ['000001', '000002', '000003', '000004','000005', '000006', '000007', '000008', '000009', '000010']
 
 
@@ -200,6 +202,7 @@ sample_list_train     = ['000001', '000002', '000003', '000004','000005', '00000
 left_image_dir_test  = os.path.abspath('./test/left')
 right_image_dir_test = os.path.abspath('./test/right')
 calib_dir_test       = os.path.abspath('./test/calib')
+pred_depth_map_test  = os.path.abspath('./test/pred_depth_map')
 sample_list_test     = ['000011', '000012', '000013', '000014','000015']
 
 ## Output
@@ -290,7 +293,30 @@ def feature_matching(left_image_dir, right_image_dir, sample_list, n=25):
         cv.imwrite(img_save_path + sample_name + '.png', matched_img)
 
 
-def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir):
+def save_depth_image(img_shape, px_u_list, px_v_list, depth_list):
+    """
+    Given depth values, saves the grayscale image
+    
+    Args:
+        img_shape  : the shape of the image
+        px_u_list  : x/u coordinates of the feature (along the columns)
+        px_v_list  : y/v coordinates of the feature (along the rows)
+        depth_list : corresponding depth values
+
+    Returns:
+        None uint8 depth image
+    """
+    depth_img_array = np.zeros(img_shape)
+    
+    for i in range(len(depth_list)):
+        depth_img_array[px_v_list[i], px_u_list[i]] = depth_list[i]
+
+    depth_img_array = (((depth_img_array - depth_img_array.min())/(depth_img_array.max() - depth_img_array.min()))*255.9).astype(np.uint8)
+    depth_img       = Image.fromarray(depth_img_array)
+
+    return depth_img
+
+def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir, depth_img_dir):
     """
     Depth calculation using left and right images from a stereo camera
     
@@ -299,6 +325,7 @@ def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir):
         right_image_dir : directory containing the right images of the stereo camera
         sample_list     : list of image names, without extension
         calib_dir       : directory containing the calibration data
+        depth_img_dir   : directory to save predicted depth images
 
     Returns:
         None
@@ -350,11 +377,15 @@ def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir):
             depth     = B*f/disparity
 
             # variables to be saved
-            pixel_u_list.append(int(u_l))
-            pixel_v_list.append(int(v_l))
-            disparity_list.append(disparity)
-            depth_list.append(depth)            
+            if depth <= 80:                
+                pixel_u_list.append(int(u_l))
+                pixel_v_list.append(int(v_l))
+                disparity_list.append(disparity)
+                depth_list.append(depth)            
 
+        print(f'Total number of points with depth values: {len(depth_list)} for image {sample_name}')
+        depth_image = save_depth_image(np.shape(img_left_gray), pixel_u_list, pixel_v_list, depth_list)
+        depth_image.save(depth_img_dir + '/' + sample_name + '.png')
 
         # Output
         for u, v, disp, depth in zip(pixel_u_list, pixel_v_list, disparity_list, depth_list):
@@ -406,4 +437,5 @@ if __name__=='__main__':
     # feature_detection(left_image_dir_train, right_image_dir_train, sample_list_train)
     # feature_detection(left_image_dir_test, right_image_dir_test, sample_list_test)
     # feature_matching(left_image_dir_test, right_image_dir_test, sample_list_test)
-    depth_from_stereo(left_image_dir_train, right_image_dir_train, sample_list_train, calib_dir_train)
+    # depth_from_stereo(left_image_dir_train, right_image_dir_train, sample_list_train, calib_dir_train, pred_depth_map_train)
+    depth_from_stereo(left_image_dir_test, right_image_dir_test, sample_list_test, calib_dir_test, pred_depth_map_test)
