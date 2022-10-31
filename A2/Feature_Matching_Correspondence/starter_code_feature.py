@@ -209,7 +209,7 @@ output_file.truncate(0)
 
 def feature_detection(left_image_dir, right_image_dir, sample_list):
     """
-    feature detection for given left and right images from a stereo camera
+    Feature detection for given left and right images from a stereo camera
     
     Args:
         left_image_dir  : directory containing the left images of the stereo camera
@@ -245,7 +245,7 @@ def feature_detection(left_image_dir, right_image_dir, sample_list):
 
 def feature_matching(left_image_dir, right_image_dir, sample_list, n=25):
     """
-    feature matching for given left and right images from a stereo camera
+    Feature matching for given left and right images from a stereo camera
     
     Args:
         left_image_dir  : directory containing the left images of the stereo camera
@@ -289,6 +289,79 @@ def feature_matching(left_image_dir, right_image_dir, sample_list, n=25):
         img_save_path = os.path.abspath('./feature_matching/matched_keypoints_')
         cv.imwrite(img_save_path + sample_name + '.png', matched_img)
 
+
+def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir):
+    """
+    Depth calculation using left and right images from a stereo camera
+    
+    Args:
+        left_image_dir  : directory containing the left images of the stereo camera
+        right_image_dir : directory containing the right images of the stereo camera
+        sample_list     : list of image names, without extension
+        calib_dir       : directory containing the calibration data
+
+    Returns:
+        None
+    """
+    sift    = cv.xfeatures2d.SIFT_create()
+
+    for sample_name in sample_list:
+        calib_filename = calib_dir + '/' + sample_name + '.txt'
+        frame_calib    = read_frame_calib(calib_filename)
+        left_cam_mat, right_cam_mat = frame_calib.p2, frame_calib.p3
+
+        # stereo calibration
+        stereo_calib   = get_stereo_calibration(left_cam_mat, right_cam_mat)
+        
+        # get baseline and focal length
+        B, f = stereo_calib.baseline, stereo_calib.f
+
+        # left and right image paths
+        left_image_path = left_image_dir +'/' + sample_name + '.png'
+        right_image_path = right_image_dir +'/' + sample_name + '.png'
+
+        # read images
+        img_left_orig  = cv.imread(left_image_path)
+        img_left_gray  = cv.cvtColor(img_left_orig, cv.COLOR_BGR2GRAY)
+        img_right_orig = cv.imread(right_image_path)
+        img_right_gray = cv.cvtColor(img_right_orig, cv.COLOR_BGR2GRAY)
+
+        # detect features and their descriptors
+        kp_left, des_left   = sift.detectAndCompute(img_left_gray, None)
+        kp_right, des_right = sift.detectAndCompute(img_right_gray, None)
+
+        # create BFMatcher object
+        bf = cv.BFMatcher(crossCheck=True)
+
+        # match descriptors.
+        matches = bf.match(des_left, des_right)
+
+        # variable to store
+        pixel_u_list = []     # x pixel on left image
+        pixel_v_list = []     # y pixel on left image
+        disparity_list = []
+        depth_list = []
+
+        for i, match in enumerate(matches):
+            l_idx, r_idx = match.queryIdx, match.trainIdx
+            u_l, v_l = kp_left[l_idx].pt[0], kp_left[l_idx].pt[1]
+            u_r, v_r = kp_right[r_idx].pt[0], kp_right[r_idx].pt[1]
+            disparity = int(abs(u_r - u_l))
+            depth     = B*f/disparity
+
+            # variables to be saved
+            pixel_u_list.append(int(u_l))
+            pixel_v_list.append(int(v_l))
+            disparity_list.append(disparity)
+            depth_list.append(depth)            
+
+
+        # Output
+        for u, v, disp, depth in zip(pixel_u_list, pixel_v_list, disparity_list, depth_list):
+            line = "{} {:.2f} {:.2f} {:.2f} {:.2f}".format(sample_name, u, v, disp, depth)
+            output_file.write(line + '\n')
+
+    output_file.close()
 ## Main
 # for sample_name in sample_list:
 #     left_image_path = left_image_dir +'/' + sample_name + '.png'
@@ -332,4 +405,5 @@ def feature_matching(left_image_dir, right_image_dir, sample_list, n=25):
 if __name__=='__main__':
     # feature_detection(left_image_dir_train, right_image_dir_train, sample_list_train)
     # feature_detection(left_image_dir_test, right_image_dir_test, sample_list_test)
-    feature_matching(left_image_dir_test, right_image_dir_test, sample_list_test)
+    # feature_matching(left_image_dir_test, right_image_dir_test, sample_list_test)
+    depth_from_stereo(left_image_dir_train, right_image_dir_train, sample_list_train, calib_dir_train)
