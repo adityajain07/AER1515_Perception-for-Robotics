@@ -316,6 +316,35 @@ def save_depth_image(img_shape, px_u_list, px_v_list, depth_list):
 
     return depth_img
 
+
+def outlier_rejection(matches, kp_left, kp_right):
+    """
+    Given a set of matches, removes the outlier and returns inlier matches
+    
+    Args:
+        matches: BFMatcher object containing the matches
+        kp_left: detected keypoints of the left image
+        kp_right: detected keypoints on the right image
+
+    Returns
+        inlier matches
+    """
+    # store matched points
+    src_pts = np.float32([ kp_left[m.queryIdx].pt for m in matches ]).reshape(-1,1,2)
+    dst_pts = np.float32([ kp_right[m.trainIdx].pt for m in matches ]).reshape(-1,1,2)
+
+    # calculate homography
+    M, mask = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 2.0)
+    matchesMask = mask.ravel().tolist()
+    
+    # select inlier matches
+    inlier_matches = []
+    for i in range(len(matchesMask)):
+        if matchesMask[i] == 1:
+            inlier_matches.append(matches[i])
+
+    return inlier_matches
+
 def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir, depth_img_dir):
     """
     Depth calculation using left and right images from a stereo camera
@@ -328,7 +357,7 @@ def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir, d
         depth_img_dir   : directory to save predicted depth images
 
     Returns:
-        None
+        Nonex
     """
     sift    = cv.xfeatures2d.SIFT_create()
 
@@ -360,8 +389,13 @@ def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir, d
         # create BFMatcher object
         bf = cv.BFMatcher(crossCheck=True)
 
-        # match descriptors.
+        # match descriptors
         matches = bf.match(des_left, des_right)
+
+        # outlier rejection using RANSAC
+        print(f'Total number of matches before outlier rejection: {len(matches)} for image {sample_name}')
+        inlier_matches = outlier_rejection(matches, kp_left, kp_right)
+        print(f'Total number of matches after outlier rejection: {len(inlier_matches)} for image {sample_name}')
 
         # variable to store
         pixel_u_list = []     # x pixel on left image
@@ -369,7 +403,7 @@ def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir, d
         disparity_list = []
         depth_list = []
 
-        for i, match in enumerate(matches):
+        for i, match in enumerate(inlier_matches):
             l_idx, r_idx = match.queryIdx, match.trainIdx
             u_l, v_l = kp_left[l_idx].pt[0], kp_left[l_idx].pt[1]
             u_r, v_r = kp_right[r_idx].pt[0], kp_right[r_idx].pt[1]
@@ -387,10 +421,17 @@ def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir, d
         depth_image = save_depth_image(np.shape(img_left_gray), pixel_u_list, pixel_v_list, depth_list)
         depth_image.save(depth_img_dir + '/' + sample_name + '.png')
 
-        # Output
+        # output
         for u, v, disp, depth in zip(pixel_u_list, pixel_v_list, disparity_list, depth_list):
             line = "{} {:.2f} {:.2f} {:.2f} {:.2f}".format(sample_name, u, v, disp, depth)
             output_file.write(line + '\n')
+
+        # draw matches and save image
+        matched_img = cv.drawMatches(img_left_orig, kp_left, 
+            img_right_orig, kp_right, inlier_matches, 
+            None,flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        img_save_path = os.path.abspath('./outlier_removal_matches/matched_keypoints_outlier_r_')
+        cv.imwrite(img_save_path + sample_name + '.png', matched_img)
 
     output_file.close()
 ## Main
@@ -436,6 +477,7 @@ def depth_from_stereo(left_image_dir, right_image_dir, sample_list, calib_dir, d
 if __name__=='__main__':
     # feature_detection(left_image_dir_train, right_image_dir_train, sample_list_train)
     # feature_detection(left_image_dir_test, right_image_dir_test, sample_list_test)
+    # feature_matching(left_image_dir_train, right_image_dir_train, sample_list_train)
     # feature_matching(left_image_dir_test, right_image_dir_test, sample_list_test)
     # depth_from_stereo(left_image_dir_train, right_image_dir_train, sample_list_train, calib_dir_train, pred_depth_map_train)
     depth_from_stereo(left_image_dir_test, right_image_dir_test, sample_list_test, calib_dir_test, pred_depth_map_test)
