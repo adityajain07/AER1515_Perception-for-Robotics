@@ -1,8 +1,9 @@
+from cProfile import label
 from tkinter import N
 import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
-
+import os
 
 def load_point_cloud(path):
     # Load the point cloud data (do NOT change this function!)
@@ -81,26 +82,73 @@ def estimate_pose(corr_source, corr_target):
     return pose, translation_x, translation_y, translation_z
 
 
-def icp(pcd_source, pcd_target, iter=30):
+def plot_icp_loss(icp_loss_list, pcd_name, save_path):
+    """plots icp loss"""
+
+    print(f'Plotting ICP loss for {pcd_name}')
+    plt.figure()
+    plt.plot(icp_loss_list)
+    plt.ylabel("ICP Loss (Mean Euclidean Distance)")
+    plt.xlabel("Number of Iterations")
+    # plt.title("ICP Loss Plot for " + pcd_name)
+    plt.savefig(save_path + '/' 'icp_loss_' + pcd_name + '.png')
+
+
+def plot_3d_translation(trans_3d_list, pcd_name, save_path):
+    """plots 3d translation values"""
+
+    trans_3d_list = np.array(trans_3d_list)
+    print(f'Plotting 3d translation for {pcd_name}')
+    plt.figure()
+    plt.plot(trans_3d_list[:, 0], label='Translation X')
+    plt.plot(trans_3d_list[:, 1], label='Translation Y')
+    plt.plot(trans_3d_list[:, 2], label='Translation Z')
+    plt.ylabel("3D Translation (mm)")
+    plt.xlabel("Number of Iterations")
+    plt.legend()
+    # plt.title("3D Translation Plot for  " + pcd_name)
+    plt.savefig(save_path + '/' '3d_trans_' + pcd_name + '.png')
+
+def icp(pcd_source, pcd_target, pcd_name, plot_save_path, iter=30):
+    """
+    main ICP function
+
+    Args:
+        pcd_source: source point cloud
+        pcd_target: target point cloud
+        pcd_name: the name of the point cloud model
+        plot_save_path: directory to save the plots
+
+    Returns:
+        Pose, 4x4 transformation matrix
+    """
     # TODO: Put all together, implement the ICP algorithm
     # TODO: Use your implemented functions "nearest_search" and "estimate_pose"
     # TODO: Run 30 iterations
     # TODO: Show the plot of mean euclidean distance (from function "nearest_search") for each iteration
     # TODO: Show the plot of pose translation (from function "estimate_pose") for each iteration
-    pose = np.identity(4)
-    cur_source = pcd_source
+    pose              = np.identity(4)
+    cur_source        = pcd_source
+    ec_dist_mean_list = []
+    trans_3d_list     = []
     
     for i in range(iter):
         corr_source, corr_target, ec_dist_mean = nearest_search(cur_source, pcd_target)        
-        pose, translation_x, translation_y, translation_z = estimate_pose(corr_source, corr_target)
+        pose_new, translation_x, translation_y, translation_z = estimate_pose(corr_source, corr_target)
+        pose = pose_new@pose
 
         # transform the source points according to the calculated pose
         pts              = np.vstack([np.transpose(corr_source), np.ones(len(corr_source))])
-        cloud_registered = np.matmul(pose, pts)
+        cloud_registered = np.matmul(pose_new, pts)
         cloud_registered = np.transpose(cloud_registered[0:3, :])
         cur_source       = cloud_registered
 
         print(f'Mean euclidean distance for iteration {i+1} is {ec_dist_mean}')
+        ec_dist_mean_list.append(ec_dist_mean)
+        trans_3d_list.append([translation_x, translation_y, translation_z])
+
+    plot_icp_loss(ec_dist_mean_list, pcd_name, plot_save_path)
+    plot_3d_translation(trans_3d_list, pcd_name, plot_save_path)
 
     return pose
 
@@ -113,6 +161,7 @@ def main():
     # Training and test data (3 pairs in total)
     train_file = ['bunny', 'dragon']
     test_file = ['armadillo']
+    plot_save_path = os.path.abspath('./plots')
 
     # Ground truth pose (from training data only, used for validating your implementation)
     GT_poses = []
@@ -144,17 +193,17 @@ def main():
         gt_pose_i = GT_poses[i]
 
         # Visualize the point clouds before the registration
-        # ax = plt.axes(projection='3d')
-        # ax.scatter3D(pcd_source[:,0], pcd_source[:,1], pcd_source[:,2], cmap='Greens')
-        # ax.scatter3D(pcd_target[:,0], pcd_target[:,1], pcd_target[:,2], cmap='Reds')
-        # plt.legend(["Source Point Cloud" , "Target Point Cloud"])
-        # ax.set_title('Point Clouds Before Registration')
-        # plt.show()
-
+        plt.figure()
+        ax = plt.axes(projection='3d')
+        ax.scatter3D(pcd_source[:,0], pcd_source[:,1], pcd_source[:,2], cmap='Greens')
+        ax.scatter3D(pcd_target[:,0], pcd_target[:,1], pcd_target[:,2], cmap='Reds')
+        plt.legend(["Source Point Cloud" , "Target Point Cloud"])
+        ax.set_title('Point Clouds Before Registration')
+        plt.show()
 
 
         # TODO: Use your implemented ICP algorithm to get the estimated 6D pose (from source to target point cloud)
-        pose = icp(pcd_source, pcd_target)
+        pose = icp(pcd_source, pcd_target, train_file[i], plot_save_path)
 
         # Transform the point cloud
         # TODO: Replace the ground truth pose with your computed pose and transform the source point cloud
@@ -164,15 +213,17 @@ def main():
         cloud_registered = np.transpose(cloud_registered[0:3, :])
 
         # TODO: Evaluate the rotation and translation error of your estimated 6D pose with the ground truth pose
-
+        print(f'6D pose error between ground truth and estimation for {train_file[i]} is {gt_pose_i-pose}')
 
         # Visualize the point clouds after the registration
+        plt.figure()
         ax = plt.axes(projection='3d')
         ax.scatter3D(cloud_registered[:,0], cloud_registered[:,1], cloud_registered[:,2], cmap='Greens')
         ax.scatter3D(pcd_target[:,0], pcd_target[:,1], pcd_target[:,2], cmap='Reds')
         plt.legend(["Transformed Source Point Cloud", "Target Point Cloud"])
         ax.set_title('Point Clouds After Registration')
         plt.show()
+
     ##########################################################################################################
 
 
@@ -187,6 +238,7 @@ def main():
         pcd_target = load_point_cloud(path_target)
 
         # Visualize the point clouds before the registration
+        plt.figure()
         ax = plt.axes(projection='3d')
         ax.scatter3D(pcd_source[:,0], pcd_source[:,1], pcd_source[:,2], cmap='Greens')
         ax.scatter3D(pcd_target[:,0], pcd_target[:,1], pcd_target[:,2], cmap='Reds')
@@ -195,12 +247,28 @@ def main():
         plt.show()
 
         # TODO: Use your implemented ICP algorithm to get the estimated 6D pose (from source to target point cloud)
-        # pose = icp(pcd_source, pcd_target)
+        pose = icp(pcd_source, pcd_target, test_file[i], plot_save_path)
 
         # TODO: Show your outputs in the report
         # TODO: 1. Show your estimated 6D pose (4x4 transformation matrix)
+        print(f'The estimated 6D pose for the test point cloud is {pose}')
         # TODO: 2. Visualize the registered point cloud and the target point cloud
 
+        # Transform the point cloud
+        pts = np.vstack([np.transpose(pcd_source), np.ones(len(pcd_source))])
+        cloud_registered = np.matmul(pose, pts)
+        cloud_registered = np.transpose(cloud_registered[0:3, :])
+
+        # Visualize the point clouds after the registration
+        plt.figure()
+        ax = plt.axes(projection='3d')
+        ax.scatter3D(cloud_registered[:,0], cloud_registered[:,1], cloud_registered[:,2], cmap='Greens')
+        ax.scatter3D(pcd_target[:,0], pcd_target[:,1], pcd_target[:,2], cmap='Reds')
+        plt.legend(["Transformed Source Point Cloud", "Target Point Cloud"])
+        ax.set_title('Point Clouds After Registration')
+        plt.show()
+        plt.pause(1)
+        plt.close()
 
 
 if __name__ == '__main__':
